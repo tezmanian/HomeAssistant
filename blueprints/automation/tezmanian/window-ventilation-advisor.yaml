@@ -1,5 +1,5 @@
 blueprint:
-  name: Window – Ventilation advisor (open / close) v1.4.0
+  name: Window – Ventilation advisor (open / close)
   author: tezmanian
   source_url: https://raw.githubusercontent.com/tezmanian/HomeAssistant/main/blueprints/automation/tezmanian/window-ventilation-advisor.yaml
   description: >
@@ -56,7 +56,9 @@ blueprint:
 
     **Changelog**
 
-    - 1.4.0 (2026-10-13) – Unavailable window contacts no longer count as
+    - 1.4.0 (2026-10-13) – Sensors grouped into inside / outside sections
+      (input names unchanged, existing automations keep working);
+      unavailable window contacts no longer count as
       closed (no ventilate recommendation while unknown); °F sensors are
       converted; pending recommendation is delivered when the notification
       window opens, even without reminders; helper warning is logged
@@ -140,17 +142,16 @@ blueprint:
                 - domain: input_select
                 - domain: input_text
 
-    sensor_section:
-      name: Sensors (all optional, multiple selection allowed)
+    sensors_inside_section:
+      name: Sensors – inside (all optional)
       description: >
-        Select what you have – everything is optional. The more
-        sensors, the better the recommendation. Missing or
-        unavailable sensors are simply ignored.
-      icon: mdi:thermometer-water
+        Sensors in the room itself. Everything is optional, multiple
+        sensors are averaged, missing or unavailable ones are ignored.
+      icon: mdi:home-thermometer
       collapsed: false
       input:
         temp_inside:
-          name: Indoor temperature
+          name: Indoor – temperature
           description: >
             Room temperature. Used for: room too cold → close,
             room too warm → cool by ventilating, and (together
@@ -163,23 +164,8 @@ blueprint:
               filter:
                 - domain: sensor
                   device_class: temperature
-        temp_outside:
-          name: Outdoor temperature
-          description: >
-            Outdoor temperature, ideally from a shaded sensor.
-            Determines the heating season, the recommended
-            ventilation time and whether ventilating cools or
-            heats the room. Falls back to the weather entity if
-            empty or unavailable.
-          default: []
-          selector:
-            entity:
-              multiple: true
-              filter:
-                - domain: sensor
-                  device_class: temperature
         humidity_inside:
-          name: Indoor humidity
+          name: Indoor – humidity
           description: >
             Relative humidity in the room. Above the threshold
             ventilating is recommended – but only if the outdoor
@@ -192,36 +178,8 @@ blueprint:
               filter:
                 - domain: sensor
                   device_class: humidity
-        humidity_outside:
-          name: Outdoor humidity
-          description: >
-            Relative outdoor humidity. Needed together with the
-            outdoor temperature to calculate absolute humidity.
-            Without it the weather entity is used; without both,
-            high indoor humidity always leads to a ventilation
-            recommendation.
-          default: []
-          selector:
-            entity:
-              multiple: true
-              filter:
-                - domain: sensor
-                  device_class: humidity
-        weather_entity:
-          name: Weather entity (optional, fallback for outdoor values)
-          description: >
-            Used when no outdoor sensors are selected or they
-            are unavailable (attributes temperature / humidity).
-            Note: weather services report values for your
-            region, not for your balcony – a local sensor is
-            more precise.
-          default: ""
-          selector:
-            entity:
-              filter:
-                - domain: weather
         co2_inside:
-          name: Indoor air quality – CO₂ (ppm)
+          name: Indoor – CO₂ (ppm)
           description: >
             The best indicator of stale air. Without a CO₂
             sensor, ventilating is only recommended based on
@@ -236,7 +194,7 @@ blueprint:
                 - domain: sensor
                   device_class: carbon_dioxide
         aq_inside:
-          name: Indoor air quality – particulate matter / AQI
+          name: Indoor – particulate matter / AQI / VOC
           description: >
             Particulate matter (PM2.5/PM10), AQI or VOC in the
             room – e.g. after cooking or burning candles. The
@@ -254,8 +212,61 @@ blueprint:
                   device_class: aqi
                 - domain: sensor
                   device_class: volatile_organic_compounds
+
+    sensors_outside_section:
+      name: Sensors – outside (all optional)
+      description: >
+        Outdoor sensors, ideally in the shade and not on a sunny wall.
+        Without outdoor values the weather entity is used as a fallback.
+        Leave "particulate matter" empty if you have no outdoor sensor.
+      icon: mdi:tree-outline
+      collapsed: false
+      input:
+        temp_outside:
+          name: Outdoor – temperature
+          description: >
+            Outdoor temperature, ideally from a shaded sensor.
+            Determines the heating season, the recommended
+            ventilation time and whether ventilating cools or
+            heats the room. Falls back to the weather entity if
+            empty or unavailable.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: temperature
+        humidity_outside:
+          name: Outdoor – humidity
+          description: >
+            Relative outdoor humidity. Needed together with the
+            outdoor temperature to calculate absolute humidity.
+            Without it the weather entity is used; without both,
+            high indoor humidity always leads to a ventilation
+            recommendation.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: humidity
+        weather_entity:
+          name: Outdoor – weather entity (fallback)
+          description: >
+            Used when no outdoor sensors are selected or they
+            are unavailable (attributes temperature / humidity).
+            Note: weather services report values for your
+            region, not for your balcony – a local sensor is
+            more precise.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: weather
         aq_outside:
-          name: Outdoor air quality – particulate matter / AQI
+          name: Outdoor – particulate matter / AQI (outdoor sensor only!)
           description: >
             **Must be an outdoor sensor!** Never select an
             indoor sensor here – it would block ventilating

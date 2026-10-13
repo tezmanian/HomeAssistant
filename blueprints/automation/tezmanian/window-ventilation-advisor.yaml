@@ -56,7 +56,8 @@ blueprint:
 
     **Changelog**
 
-    - 1.4.0 (2026-10-13) – Sensors grouped into inside / outside sections
+    - 1.4.0 (2026-10-13) – Area selector: restricts the inside sensors to the area
+      (auto-picked when empty), room name falls back to the area name; sensors grouped into inside / outside sections
       (input names unchanged, existing automations keep working);
       unavailable window contacts no longer count as
       closed (no ventilate recommendation while unknown); °F sensors are
@@ -91,14 +92,28 @@ blueprint:
         Create one automation per room.
       icon: mdi:window-open-variant
       input:
-        room_name:
-          name: Room name
+        area:
+          name: Area (optional)
           description: >
-            Name of the room. Appears in the notification title
-            (e.g. "🪟 Office: Time to ventilate") and in the ID
-            of the persistent notification – use a different
+            The area (room) this automation monitors. If set, the
+            **inside sensors are restricted to this area**: leave a
+            sensor field empty to use all matching sensors of the area
+            automatically, or select sensors manually – those not
+            belonging to the area are ignored. Without an area, the
+            inside sensors are used exactly as selected. If no room
+            name is entered, the name of the area is used.
+          default: ""
+          selector:
+            area:
+        room_name:
+          name: Room name (optional)
+          description: >
+            Name in the notification title (e.g. "🪟 Office: Time to
+            ventilate") and in the ID of the persistent notification.
+            Takes precedence over the area name. If empty, the area
+            name is used, without an area "Room". Use a different
             name for each automation.
-          default: Room
+          default: ""
           selector:
             text:
         window_sensors:
@@ -145,8 +160,12 @@ blueprint:
     sensors_inside_section:
       name: Sensors – inside (all optional)
       description: >
-        Sensors in the room itself. Everything is optional, multiple
-        sensors are averaged, missing or unavailable ones are ignored.
+        Sensors in the room itself. With an area selected, only sensors
+        of that area are used: leave a field empty to pick them
+        automatically, or select sensors from the area manually.
+        Without an area, exactly the selected sensors are used.
+        Multiple sensors are averaged, missing or unavailable ones are
+        ignored.
       icon: mdi:home-thermometer
       collapsed: false
       input:
@@ -630,16 +649,46 @@ triggers:
     to: ~
 
 variables:
-  room_name: !input room_name
+  area: !input area
+  room_name_input: !input room_name
+  room_name: >
+    {% if room_name_input | trim != '' %}{{ room_name_input | trim }}
+    {%- elif area %}{{ area_name(area) }}
+    {%- else %}Room{% endif %}
+  area_ent: "{{ area_entities(area) if area else [] }}"
   window_sensors: !input window_sensors
   status_helper: !input status_helper
-  temp_inside: !input temp_inside
+  temp_inside_sel: !input temp_inside
+  temp_inside: >
+    {% set sel = (temp_inside_sel | select('in', area_ent) | list) if area else temp_inside_sel %}
+    {{ sel if sel | count > 0 or not area else
+       area_ent | select('match', 'sensor.') | expand
+       | selectattr('attributes.device_class', 'in', ['temperature'])
+       | map(attribute='entity_id') | list }}
   temp_outside: !input temp_outside
-  humidity_inside: !input humidity_inside
+  humidity_inside_sel: !input humidity_inside
+  humidity_inside: >
+    {% set sel = (humidity_inside_sel | select('in', area_ent) | list) if area else humidity_inside_sel %}
+    {{ sel if sel | count > 0 or not area else
+       area_ent | select('match', 'sensor.') | expand
+       | selectattr('attributes.device_class', 'in', ['humidity'])
+       | map(attribute='entity_id') | list }}
   humidity_outside: !input humidity_outside
   weather_entity: !input weather_entity
-  co2_inside: !input co2_inside
-  aq_inside: !input aq_inside
+  co2_inside_sel: !input co2_inside
+  co2_inside: >
+    {% set sel = (co2_inside_sel | select('in', area_ent) | list) if area else co2_inside_sel %}
+    {{ sel if sel | count > 0 or not area else
+       area_ent | select('match', 'sensor.') | expand
+       | selectattr('attributes.device_class', 'in', ['carbon_dioxide'])
+       | map(attribute='entity_id') | list }}
+  aq_inside_sel: !input aq_inside
+  aq_inside: >
+    {% set sel = (aq_inside_sel | select('in', area_ent) | list) if area else aq_inside_sel %}
+    {{ sel if sel | count > 0 or not area else
+       area_ent | select('match', 'sensor.') | expand
+       | selectattr('attributes.device_class', 'in', ['pm25', 'pm10', 'aqi', 'volatile_organic_compounds'])
+       | map(attribute='entity_id') | list }}
   aq_outside: !input aq_outside
   co2_high: !input co2_high
   co2_good: !input co2_good

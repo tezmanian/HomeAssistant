@@ -1,0 +1,938 @@
+blueprint:
+  name: Window – Ventilation advisor (open / close) v1.3.0
+  author: tezmanian
+  source_url: https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/blueprints/automation/tezmanian/window-ventilation-advisor.yaml
+  description: >
+    Uses the available sensors to calculate whether ventilating is worthwhile
+    or whether the window should be closed, and sends notifications when
+    needed.
+
+
+    **Takes into account (if sensors are available):**
+
+    - **Absolute humidity** inside/outside (from temperature + relative
+      humidity) – only recommends ventilating if the outdoor air is actually
+      drier
+
+    - **CO₂** inside – ventilate above a threshold, "goal reached" when the
+      value is good again
+
+    - **Particulate matter / AQI** inside/outside – ventilate when indoor air
+      is poor, close when outdoor air is poor
+
+    - **Temperature** – cooling by ventilating in summer, close when it is
+      warmer outside or the room gets too cold
+
+    - **Shock ventilation during the heating season** – maximum open time
+      depends on the outdoor temperature (cold = short, mild = longer)
+
+
+    All sensor fields are optional and accept multiple sensors (the average of
+    the available values is used). Only the window contacts are required.
+
+
+    Optional: a Dropdown helper (`input_select`) or Text helper
+    (`input_text`) stores the current recommendation (`ventilate` / `close`
+    / `ok`). You are then notified immediately when the recommendation
+    changes, and you can show the status on your dashboard.
+
+    Notification texts are available in English and German and the titles can
+    be customised.
+
+
+    **Quick start:** select the window contacts, add whatever sensors
+    you have and pick your phone under Notifications. Everything else
+    has sensible defaults. Recommended: create a Dropdown helper (options
+    `ventilate`, `close`, `ok`) as status helper.
+
+
+    **Version:** 1.3.0
+
+
+    **Changelog**
+
+    - 1.3.0 (2026-10-13) – Notification language (English / German), custom
+      titles, optional measurement line; fix: no error without status helper
+
+    - 1.2.2 (2026-10-12) – Status helper can also be a Dropdown helper
+      (input_select)
+
+    - 1.2.1 (2026-10-12) – More help texts and quick start
+
+    - 1.2.0 (2026-10-12) – Adjustable critical CO₂ value that overrides the
+      pause after closing; pause moved next to it
+
+    - 1.1.0 (2026-10-11) – Device picker for Companion App devices and
+      notify entities (notify.send_message)
+
+    - 1.0.0 (2026-10-11) – Initial release
+  domain: automation
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    room_section:
+      name: Room & windows
+      description: >
+        Which room and which windows this automation monitors.
+        Create one automation per room.
+      icon: mdi:window-open-variant
+      input:
+        room_name:
+          name: Room name
+          description: >
+            Name of the room. Appears in the notification title
+            (e.g. "🪟 Office: Time to ventilate") and in the ID
+            of the persistent notification – use a different
+            name for each automation.
+          default: Room
+          selector:
+            text:
+        window_sensors:
+          name: Window contacts
+          description: >
+            All window or door contacts of the room (state on =
+            open). As soon as one is open, the room counts as
+            being ventilated; the open time is measured from the
+            first window that was opened. Tilted windows count
+            as open if your contact reports them as on.
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: binary_sensor
+                  device_class: window
+                - domain: binary_sensor
+                  device_class: door
+                - domain: binary_sensor
+                  device_class: opening
+                - domain: binary_sensor
+        status_helper:
+          name: Status helper (optional)
+          description: >
+            Optional, but recommended. Stores the current
+            recommendation (`ventilate` / `close` / `ok`).
+            Benefits: notification immediately on every change,
+            the persistent notification is removed
+            automatically, and you can use the status in
+            dashboards or as a trigger in other automations.
+            **Recommended: Dropdown helper** (Settings → Devices
+            & services → Helpers → Dropdown), e.g.
+            `input_select.ventilation_office`, with exactly the
+            three options `ventilate`, `close` and `ok` – fixed
+            values, own icons on the dashboard. Alternatively a
+            Text helper (`input_text`) works too.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: input_select
+                - domain: input_text
+
+    sensor_section:
+      name: Sensors (all optional, multiple selection allowed)
+      description: >
+        Select what you have – everything is optional. The more
+        sensors, the better the recommendation. Missing or
+        unavailable sensors are simply ignored.
+      icon: mdi:thermometer-water
+      collapsed: false
+      input:
+        temp_inside:
+          name: Indoor temperature
+          description: >
+            Room temperature. Used for: room too cold → close,
+            room too warm → cool by ventilating, and (together
+            with humidity) to calculate absolute humidity.
+            Multiple sensors are averaged.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: temperature
+        temp_outside:
+          name: Outdoor temperature
+          description: >
+            Outdoor temperature, ideally from a shaded sensor.
+            Determines the heating season, the recommended
+            ventilation time and whether ventilating cools or
+            heats the room. Falls back to the weather entity if
+            empty or unavailable.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: temperature
+        humidity_inside:
+          name: Indoor humidity
+          description: >
+            Relative humidity in the room. Above the threshold
+            ventilating is recommended – but only if the outdoor
+            air is actually drier in absolute terms (requires
+            temperature inside and outside).
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: humidity
+        humidity_outside:
+          name: Outdoor humidity
+          description: >
+            Relative outdoor humidity. Needed together with the
+            outdoor temperature to calculate absolute humidity.
+            Without it the weather entity is used; without both,
+            high indoor humidity always leads to a ventilation
+            recommendation.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: humidity
+        weather_entity:
+          name: Weather entity (optional, fallback for outdoor values)
+          description: >
+            Used when no outdoor sensors are selected or they
+            are unavailable (attributes temperature / humidity).
+            Note: weather services report values for your
+            region, not for your balcony – a local sensor is
+            more precise.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: weather
+        co2_inside:
+          name: Indoor air quality – CO₂ (ppm)
+          description: >
+            The best indicator of stale air. Without a CO₂
+            sensor, ventilating is only recommended based on
+            humidity, temperature or particulate matter, and
+            during the heating season closing is recommended
+            based on time only.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: carbon_dioxide
+        aq_inside:
+          name: Indoor air quality – particulate matter / AQI
+          description: >
+            Particulate matter (PM2.5/PM10), AQI or VOC in the
+            room – e.g. after cooking or burning candles. The
+            thresholds below use the unit of this sensor.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: pm25
+                - domain: sensor
+                  device_class: pm10
+                - domain: sensor
+                  device_class: aqi
+                - domain: sensor
+                  device_class: volatile_organic_compounds
+        aq_outside:
+          name: Outdoor air quality – particulate matter / AQI
+          description: >
+            **Must be an outdoor sensor!** Never select an
+            indoor sensor here – it would block ventilating
+            exactly when the indoor air is bad. Leave empty if
+            you have no outdoor sensor. If the outdoor value
+            exceeds the threshold, ventilating is blocked and an
+            open window gets a close recommendation.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: pm25
+                - domain: sensor
+                  device_class: pm10
+                - domain: sensor
+                  device_class: aqi
+
+    threshold_section:
+      name: Thresholds
+      description: >
+        When should ventilating or closing be recommended? The
+        defaults follow common guidance and work for most rooms.
+      icon: mdi:tune-variant
+      collapsed: true
+      input:
+        co2_high:
+          name: CO₂ – recommend ventilating above
+          description: >
+            Above this value ventilating is recommended. Guide
+            values (German Environment Agency): below 1000 ppm
+            good, 1000–2000 ppm elevated, above 2000 ppm
+            unacceptable. Fresh outdoor air is around 420 ppm.
+          default: 1000
+          selector:
+            number: { min: 600, max: 3000, step: 50, unit_of_measurement: ppm }
+        co2_good:
+          name: CO₂ – air is good again below
+          description: >
+            During the heating season "Air is good again →
+            close" is recommended once CO₂ is below this value
+            (and humidity below its target). Realistic: 500–700
+            ppm.
+          default: 650
+          selector:
+            number: { min: 400, max: 1500, step: 25, unit_of_measurement: ppm }
+        humidity_high:
+          name: Indoor relative humidity – recommend ventilating above
+          description: >
+            Above this relative humidity ventilating is
+            recommended (if the outdoor air is drier).
+            Permanently above 60–65 % increases the risk of
+            mould, especially on cold outer walls. Recommended:
+            60–65 %.
+          default: 65
+          selector:
+            number: { min: 40, max: 90, step: 1, unit_of_measurement: "%" }
+        humidity_target:
+          name: Indoor relative humidity – goal reached below
+          description: >
+            "Air is good again" additionally requires humidity
+            below this value. Recommended: 45–55 %.
+          default: 55
+          selector:
+            number: { min: 30, max: 80, step: 1, unit_of_measurement: "%" }
+        abs_humidity_margin:
+          name: Absolute humidity – minimum difference
+          description: >
+            Relative humidity alone is misleading: cold outdoor
+            air at 90 % holds less water than warm room air at
+            50 %. That is why absolute humidity (g/m³) is
+            compared. The outdoor air must be at least this much
+            drier for ventilating to dehumidify – or this much
+            more humid to recommend closing. Example: inside 21
+            °C / 60 % ≈ 11 g/m³, outside 5 °C / 90 % ≈ 6 g/m³ →
+            ventilating dries the room. Recommended: 0.5–1.5.
+          default: 1.0
+          selector:
+            number: { min: 0, max: 5, step: 0.1, unit_of_measurement: g/m³ }
+        temp_min:
+          name: Room temperature – close window below
+          description: >
+            If the room cools down below this value while the
+            window is open, closing is recommended immediately –
+            regardless of the ventilation time. Protects against
+            cold walls (mould risk).
+          default: 18
+          selector:
+            number: { min: 10, max: 24, step: 0.5, unit_of_measurement: °C }
+        temp_max:
+          name: Room temperature – cool by ventilating above
+          description: >
+            Above this room temperature ventilating is
+            recommended if it is cooler outside by at least the
+            minimum difference – e.g. on summer evenings and
+            nights.
+          default: 24
+          selector:
+            number: { min: 18, max: 32, step: 0.5, unit_of_measurement: °C }
+        temp_delta:
+          name: Temperature – minimum difference inside/outside
+          description: >
+            Minimum difference for cooling by ventilating to
+            make sense, and for a close recommendation when it
+            is warmer outside than inside (outside the heating
+            season). Prevents notifications caused by small
+            fluctuations.
+          default: 2
+          selector:
+            number: { min: 0, max: 10, step: 0.5, unit_of_measurement: K }
+        co2_critical:
+          name: CO₂ – critical (ignores pause)
+          description: >
+            From this value on, ventilating is recommended
+            immediately, even during the pause after closing.
+            Should be higher than "recommend ventilating above".
+            0 = disabled.
+          default: 1400
+          selector:
+            number: { min: 0, max: 5000, step: 50, unit_of_measurement: ppm }
+        pause_after_close:
+          name: Pause after closing
+          description: >
+            No new ventilation recommendation for this long
+            after closing – prevents back-and-forth when CO₂
+            rises again quickly while people are present.
+            Ignored when CO₂ is critical. 0 = no pause.
+          default: 30
+          selector:
+            number: { min: 0, max: 240, step: 5, unit_of_measurement: min }
+        aq_inside_high:
+          name: Indoor PM/AQI – recommend ventilating above
+          description: >
+            Above this value ventilating is recommended – only
+            if the outdoor air is noticeably cleaner (or there
+            is no outdoor sensor). Guide for PM2.5 in µg/m³: WHO
+            24 h guideline 15, above 25 elevated. Adjust for AQI
+            sensors (e.g. 100).
+          default: 25
+          selector:
+            number: { min: 0, max: 500, step: 1 }
+        aq_outside_max:
+          name: Outdoor PM/AQI – don't ventilate / close above
+          description: >
+            Above this outdoor value ventilating is blocked and
+            an open window gets a close recommendation – e.g.
+            wood smoke, fireworks, high pollution. Only relevant
+            with an outdoor air quality sensor.
+          default: 35
+          selector:
+            number: { min: 0, max: 500, step: 1 }
+
+    timing_section:
+      name: Timing & heating season
+      description: >
+        Shock ventilation during the heating season and timing
+        behaviour.
+      icon: mdi:timer-outline
+      collapsed: true
+      input:
+        heating_limit:
+          name: Heating limit (outdoor temperature)
+          description: >
+            Below this outdoor temperature the heating season
+            applies: open the window wide for a short time
+            (shock ventilation) instead of tilting it for a long
+            time – this exchanges the air without cooling down
+            the walls. Above it there is no time limit. Without
+            an outdoor temperature, October–April counts as
+            heating season.
+          default: 15
+          selector:
+            number: { min: 5, max: 22, step: 0.5, unit_of_measurement: °C }
+        max_open_cold:
+          name: Max. ventilation time at ≤ 0 °C outside
+          description: >
+            Recommended maximum ventilation time at 0 °C or
+            colder. Cold air is exchanged quickly because of the
+            large temperature difference – 5 minutes are usually
+            enough. After this time you get a close
+            recommendation.
+          default: 5
+          selector:
+            number: { min: 1, max: 30, step: 1, unit_of_measurement: min }
+        max_open_mild:
+          name: Max. ventilation time at ≥ 15 °C outside
+          description: >
+            Recommended maximum ventilation time at 15 °C
+            outside. Between 0 °C and 15 °C it is interpolated
+            linearly (with the defaults: 7.5 °C → approx. 12
+            min).
+          default: 20
+          selector:
+            number: { min: 5, max: 60, step: 1, unit_of_measurement: min }
+        min_open:
+          name: Minimum ventilation time
+          description: >
+            "Air is good again" is reported no earlier than
+            after this time, so a short CO₂ dip right after
+            opening does not immediately lead to a close
+            recommendation. The maximum ventilation time still
+            applies.
+          default: 4
+          selector:
+            number: { min: 0, max: 30, step: 1, unit_of_measurement: min }
+
+    notify_section:
+      name: Notifications
+      description: >
+        Where and when you are notified. All channels can be
+        combined.
+      icon: mdi:bell-outline
+      collapsed: true
+      input:
+        language:
+          name: Notification language
+          description: >
+            Language of titles, reasons and measurements in the
+            notifications. Home Assistant does not expose its own
+            language setting to blueprints, so choose it here.
+          default: en
+          selector:
+            select:
+              mode: dropdown
+              options:
+                - value: en
+                  label: English
+                - value: de
+                  label: Deutsch
+        title_ventilate:
+          name: Custom title – ventilate (optional)
+          description: >
+            Replaces the default title of the "ventilate"
+            notification. `{room}` is replaced by the room name,
+            e.g. `🪟 {room}: Fenster auf!`. Empty = default for
+            the selected language.
+          default: ""
+          selector:
+            text:
+        title_close:
+          name: Custom title – close (optional)
+          description: >
+            Replaces the default title of the "close"
+            notification. `{room}` is replaced by the room name.
+            Empty = default for the selected language.
+          default: ""
+          selector:
+            text:
+        show_values:
+          name: Show measurements
+          description: >
+            Adds a line with the current values (temperature,
+            humidity, CO₂, recommended duration) below the
+            reasons.
+          default: true
+          selector:
+            boolean:
+        notify_devices:
+          name: Devices (Companion App)
+          description: >
+            Phones/tablets with the Home Assistant Companion
+            App. The matching service
+            `notify.mobile_app_<device>` is determined
+            automatically from the device name. If you renamed
+            the device in the app and nothing arrives, enter the
+            service under "Additional notify services" instead.
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        notify_entities:
+          name: Notify entities (optional)
+          description: >
+            Notify entities (domain notify), sent via
+            notify.send_message – used by some newer
+            integrations. Leave empty if you are not sure; most
+            setups only need the device picker.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+        notify_services:
+          name: Additional notify services (optional)
+          description: >
+            For everything that isn't a device: notify groups,
+            Telegram, Signal etc. Comma-separated, e.g.
+            `notify.family, notify.telegram`. Available
+            services: Developer tools → Actions → search for
+            `notify.`.
+          default: ""
+          selector:
+            text:
+        persistent_notification:
+          name: Persistent notification in Home Assistant
+          description: >
+            Additionally shows the recommendation in Home
+            Assistant under the bell (notifications). One
+            message per room, replaced on updates. It is removed
+            automatically when the recommendation returns to ok
+            – **this requires a status helper**.
+          default: false
+          selector:
+            boolean:
+        reminder_minutes:
+          name: Reminder / minimum interval
+          description: >
+            Repeats the notification at this interval as long as
+            the recommendation persists. Without a status helper
+            you are only notified at this interval (it must then
+            be > 0); with a status helper you are notified
+            immediately on every change, plus reminders. 0 = no
+            reminders. The check runs every 5 minutes.
+          default: 15
+          selector:
+            number: { min: 0, max: 240, step: 5, unit_of_measurement: min }
+        notify_from:
+          name: Notify from
+          description: >
+            Start of the notification window. Outside it, no
+            notifications are sent (also no persistent
+            notification or custom actions) – the calculation
+            and status helper keep running around the clock.
+          default: "07:00:00"
+          selector:
+            time:
+        notify_until:
+          name: Notify until
+          description: >
+            End of the notification window. If "from" is later
+            than "until" (e.g. 22:00–07:00), the window spans
+            midnight.
+          default: "22:00:00"
+          selector:
+            time:
+        custom_actions:
+          name: Custom actions (optional)
+          description: >
+            Additional actions when notifying, e.g. a TTS
+            announcement or a light colour. Available variables:
+            `notify_title`, `notify_message`, `recommendation`
+            (`ventilate` / `close`).
+          default: []
+          selector:
+            action:
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: time_pattern
+    minutes: "/5"
+  - trigger: state
+    entity_id: !input window_sensors
+    to: ~
+
+variables:
+  room_name: !input room_name
+  window_sensors: !input window_sensors
+  status_helper: !input status_helper
+  temp_inside: !input temp_inside
+  temp_outside: !input temp_outside
+  humidity_inside: !input humidity_inside
+  humidity_outside: !input humidity_outside
+  weather_entity: !input weather_entity
+  co2_inside: !input co2_inside
+  aq_inside: !input aq_inside
+  aq_outside: !input aq_outside
+  co2_high: !input co2_high
+  co2_good: !input co2_good
+  co2_critical: !input co2_critical
+  humidity_high: !input humidity_high
+  humidity_target: !input humidity_target
+  abs_humidity_margin: !input abs_humidity_margin
+  temp_min: !input temp_min
+  temp_max: !input temp_max
+  temp_delta: !input temp_delta
+  aq_inside_high: !input aq_inside_high
+  aq_outside_max: !input aq_outside_max
+  heating_limit: !input heating_limit
+  max_open_cold: !input max_open_cold
+  max_open_mild: !input max_open_mild
+  min_open: !input min_open
+  pause_after_close: !input pause_after_close
+  notify_services_raw: !input notify_services
+  notify_devices: !input notify_devices
+  notify_entities: !input notify_entities
+  persistent_notification: !input persistent_notification
+  reminder_minutes: !input reminder_minutes
+  language: !input language
+  title_ventilate_custom: !input title_ventilate
+  title_close_custom: !input title_close
+  show_values: !input show_values
+
+  # ---------- Texts (placeholders {} are filled with str.format) ----------
+  tx_en:
+    co2_high: "CO₂ high ({} ppm)"
+    co2_critical: "CO₂ critical ({} ppm)"
+    hum_dry: "Humidity high ({} %), outdoor air drier ({} vs. {} g/m³)"
+    hum_high: "Humidity high ({} %)"
+    cooling: "Cooling possible (inside {} °C, outside {} °C)"
+    aq_in: "Poor indoor air quality ({})"
+    aq_out: "Poor outdoor air quality ({})"
+    too_cold: "Room too cold ({} °C)"
+    shock: "Shock ventilation done (open {} min, recommended {} min)"
+    good: "Air is good again"
+    warm_out: "Warmer outside than inside ({} °C vs. {} °C)"
+    hum_out: "Outdoor air more humid ({} vs. {} g/m³)"
+    inside: "Inside {} °C"
+    outside: "Outside {} °C"
+    co2: "CO₂ {} ppm"
+    duration: "Recommended duration approx. {} min"
+    title_ventilate: "🪟 {}: Time to ventilate"
+    title_close: "🪟 {}: Close the window"
+    helper_warning: "Ventilation advisor ({}): status helper {} needs the options ventilate, close and ok – it is ignored until then."
+  tx_de:
+    co2_high: "CO₂ hoch ({} ppm)"
+    co2_critical: "CO₂ kritisch ({} ppm)"
+    hum_dry: "Luftfeuchtigkeit hoch ({} %), Außenluft trockener ({} vs. {} g/m³)"
+    hum_high: "Luftfeuchtigkeit hoch ({} %)"
+    cooling: "Abkühlung möglich (innen {} °C, außen {} °C)"
+    aq_in: "Schlechte Raumluft ({})"
+    aq_out: "Schlechte Außenluft ({})"
+    too_cold: "Raum zu kalt ({} °C)"
+    shock: "Stoßlüften beendet (offen {} min, empfohlen {} min)"
+    good: "Luft ist wieder gut"
+    warm_out: "Draußen wärmer als drinnen ({} °C vs. {} °C)"
+    hum_out: "Außenluft feuchter ({} vs. {} g/m³)"
+    inside: "Innen {} °C"
+    outside: "Außen {} °C"
+    co2: "CO₂ {} ppm"
+    duration: "Empfohlene Dauer ca. {} min"
+    title_ventilate: "🪟 {}: Jetzt lüften"
+    title_close: "🪟 {}: Fenster schließen"
+    helper_warning: "Lüftungsberater ({}): Der Status-Helfer {} braucht die Optionen ventilate, close und ok – er wird ignoriert, bis das passt."
+  tx: "{{ tx_de if language == 'de' else tx_en }}"
+
+  # ---------- Readings (average of available sensors) ----------
+  t_in: >
+    {% set v = temp_inside | map('states') | select('is_number') | map('float') | list %}
+    {{ (v | sum / v | count) | round(1) if v | count > 0 else none }}
+  t_out: >
+    {% set v = temp_outside | map('states') | select('is_number') | map('float') | list %}
+    {% if v | count > 0 %}{{ (v | sum / v | count) | round(1) }}
+    {% elif weather_entity and state_attr(weather_entity, 'temperature') is number %}{{ state_attr(weather_entity, 'temperature') | float | round(1) }}
+    {% else %}{{ none }}{% endif %}
+  h_in: >
+    {% set v = humidity_inside | map('states') | select('is_number') | map('float') | list %}
+    {{ (v | sum / v | count) | round(1) if v | count > 0 else none }}
+  h_out: >
+    {% set v = humidity_outside | map('states') | select('is_number') | map('float') | list %}
+    {% if v | count > 0 %}{{ (v | sum / v | count) | round(1) }}
+    {% elif weather_entity and state_attr(weather_entity, 'humidity') is number %}{{ state_attr(weather_entity, 'humidity') | float | round(1) }}
+    {% else %}{{ none }}{% endif %}
+  co2: >
+    {% set v = co2_inside | map('states') | select('is_number') | map('float') | list %}
+    {{ (v | sum / v | count) | round(0) if v | count > 0 else none }}
+  aq_in: >
+    {% set v = aq_inside | map('states') | select('is_number') | map('float') | list %}
+    {{ (v | sum / v | count) | round(1) if v | count > 0 else none }}
+  aq_out: >
+    {% set v = aq_outside | map('states') | select('is_number') | map('float') | list %}
+    {{ (v | sum / v | count) | round(1) if v | count > 0 else none }}
+
+  # ---------- Absolute humidity (g/m³, Magnus formula) ----------
+  ah_in: >
+    {% if t_in is number and h_in is number %}
+      {% set es = 6.112 * (2.718281828 ** (17.62 * t_in / (243.12 + t_in))) %}
+      {{ (216.7 * (h_in / 100 * es) / (273.15 + t_in)) | round(2) }}
+    {% else %}{{ none }}{% endif %}
+  ah_out: >
+    {% if t_out is number and h_out is number %}
+      {% set es = 6.112 * (2.718281828 ** (17.62 * t_out / (243.12 + t_out))) %}
+      {{ (216.7 * (h_out / 100 * es) / (273.15 + t_out)) | round(2) }}
+    {% else %}{{ none }}{% endif %}
+
+  # ---------- Window state ----------
+  any_open: >
+    {{ expand(window_sensors) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+  open_minutes: >
+    {% set lc = expand(window_sensors) | selectattr('state', 'eq', 'on')
+                | map(attribute='last_changed') | list %}
+    {{ ((now() - (lc | min)).total_seconds() / 60) | round(1) if lc | count > 0 else 0 }}
+  closed_minutes: >
+    {% set lc = expand(window_sensors) | map(attribute='last_changed') | list %}
+    {{ ((now() - (lc | max)).total_seconds() / 60) | round(1) if lc | count > 0 else 9999 }}
+
+  # ---------- Derived values ----------
+  heating_season: >
+    {% if t_out is number %}{{ t_out < heating_limit | float }}
+    {% else %}{{ now().month in [10, 11, 12, 1, 2, 3, 4] }}{% endif %}
+  max_open: >
+    {% set lo = max_open_cold | float %}{% set hi = max_open_mild | float %}
+    {% if t_out is number %}
+      {% set f = [[t_out / 15, 0] | max, 1] | min %}
+      {{ (lo + (hi - lo) * f) | round(0) }}
+    {% else %}{{ ((lo + hi) / 2) | round(0) }}{% endif %}
+  cooling_benefit: >
+    {{ t_in is number and t_out is number
+       and t_in > temp_max | float and t_out < t_in - temp_delta | float }}
+  outside_air_bad: >
+    {{ aq_out is number and aq_out > aq_outside_max | float }}
+  outside_more_humid: >
+    {{ ah_in is number and ah_out is number
+       and ah_out > ah_in + abs_humidity_margin | float }}
+  air_good_again: >
+    {% set has_metric = co2 is number or h_in is number %}
+    {{ has_metric
+       and (co2 is not number or co2 < co2_good | float)
+       and (h_in is not number or h_in < humidity_target | float)
+       and (aq_in is not number or aq_in < aq_inside_high | float) }}
+
+  co2_is_critical: >
+    {{ co2_critical | float > 0 and co2 is number and co2 >= co2_critical | float }}
+
+  # ---------- Reasons to open ----------
+  open_reasons: >
+    {% set r = namespace(l=[]) %}
+    {% if co2 is number and co2 > co2_high | float %}
+      {% set r.l = r.l + [(tx.co2_critical if co2_is_critical else tx.co2_high).format(co2 | int)] %}
+    {% endif %}
+    {% if h_in is number and h_in > humidity_high | float %}
+      {% if ah_in is number and ah_out is number %}
+        {% if ah_out < ah_in - abs_humidity_margin | float %}
+          {% set r.l = r.l + [tx.hum_dry.format(h_in, ah_out, ah_in)] %}
+        {% endif %}
+      {% else %}
+        {% set r.l = r.l + [tx.hum_high.format(h_in)] %}
+      {% endif %}
+    {% endif %}
+    {% if cooling_benefit %}
+      {% set r.l = r.l + [tx.cooling.format(t_in, t_out)] %}
+    {% endif %}
+    {% if aq_in is number and aq_in > aq_inside_high | float
+          and (aq_out is not number or aq_out < aq_in * 0.8) %}
+      {% set r.l = r.l + [tx.aq_in.format(aq_in)] %}
+    {% endif %}
+    {{ r.l }}
+  open_blocked: >
+    {{ outside_air_bad
+       or (closed_minutes < pause_after_close | float and not co2_is_critical) }}
+
+  # ---------- Reasons to close ----------
+  close_reasons: >
+    {% set r = namespace(l=[]) %}
+    {% if outside_air_bad %}
+      {% set r.l = r.l + [tx.aq_out.format(aq_out)] %}
+    {% endif %}
+    {% if t_in is number and t_in < temp_min | float %}
+      {% set r.l = r.l + [tx.too_cold.format(t_in)] %}
+    {% endif %}
+    {% if heating_season and open_minutes >= max_open | float %}
+      {% set r.l = r.l + [tx.shock.format(open_minutes | int, max_open | int)] %}
+    {% elif heating_season and air_good_again and open_minutes >= min_open | float %}
+      {% set r.l = r.l + [tx.good] %}
+    {% endif %}
+    {% if not heating_season and not cooling_benefit and t_in is number and t_out is number
+          and t_out > t_in + temp_delta | float and t_in >= temp_min | float %}
+      {% set r.l = r.l + [tx.warm_out.format(t_out, t_in)] %}
+    {% endif %}
+    {% if outside_more_humid and not cooling_benefit %}
+      {% set r.l = r.l + [tx.hum_out.format(ah_out, ah_in)] %}
+    {% endif %}
+    {{ r.l }}
+
+  # ---------- Recommendation ----------
+  recommendation: >
+    {% if any_open and close_reasons | count > 0 %}close
+    {%- elif not any_open and open_reasons | count > 0 and not open_blocked %}ventilate
+    {%- else %}ok{% endif %}
+  helper_set: "{{ status_helper not in ['', none] }}"
+  helper_valid: >
+    {% if not helper_set %}{{ false }}
+    {%- elif status_helper.startswith('input_select.') %}
+      {{- ['ventilate', 'close', 'ok'] | reject('in', state_attr(status_helper, 'options') or []) | list | count == 0 }}
+    {%- else %}{{ states(status_helper) not in ['unknown', 'unavailable'] }}{% endif %}
+  has_helper: "{{ helper_valid }}"
+  last_recommendation: "{{ states(status_helper) if has_helper else '' }}"
+  reminder_due: >
+    {% set lt = this.attributes.last_triggered if this is defined else none %}
+    {{ reminder_minutes | float > 0
+       and (lt is none or (now() - lt).total_seconds() / 60 >= reminder_minutes | float) }}
+
+  # ---------- Texts ----------
+  notify_title: >
+    {% set custom = title_ventilate_custom if recommendation == 'ventilate' else title_close_custom %}
+    {% if custom | string | trim != '' %}{{ custom | string | replace('{room}', room_name | string) }}
+    {%- elif recommendation == 'ventilate' %}{{ tx.title_ventilate.format(room_name) }}
+    {%- else %}{{ tx.title_close.format(room_name) }}{% endif %}
+  notify_message: >
+    {% set reasons = open_reasons if recommendation == 'ventilate' else close_reasons %}
+    {% set d = namespace(l=[]) %}
+    {% if t_in is number %}{% set d.l = d.l + [tx.inside.format(t_in) ~ ((' / ' ~ h_in ~ ' %') if h_in is number else '')] %}{% endif %}
+    {% if t_out is number %}{% set d.l = d.l + [tx.outside.format(t_out) ~ ((' / ' ~ h_out ~ ' %') if h_out is number else '')] %}{% endif %}
+    {% if co2 is number %}{% set d.l = d.l + [tx.co2.format(co2 | int)] %}{% endif %}
+    {% if recommendation == 'ventilate' and heating_season %}{% set d.l = d.l + [tx.duration.format(max_open | int)] %}{% endif %}
+    {{ reasons | join(' · ') }}{{ ('\n' ~ d.l | join(' · ')) if show_values and d.l | count > 0 else '' }}
+  notify_list: >
+    {% set ns = namespace(l=[]) %}
+    {% for dev in notify_devices %}
+      {% set n = device_attr(dev, 'name') %}
+      {% if n %}{% set ns.l = ns.l + ['notify.mobile_app_' ~ (n | slugify)] %}{% endif %}
+    {% endfor %}
+    {% set extra = notify_services_raw.split(',') | map('trim') | reject('eq', '') | list %}
+    {{ (ns.l + extra) | unique | list }}
+
+conditions:
+  - condition: template
+    value_template: >
+      {{ (has_helper and recommendation != last_recommendation)
+         or (recommendation != 'ok' and reminder_due) }}
+
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ has_helper and recommendation != last_recommendation }}"
+    then:
+      - if:
+          - condition: template
+            value_template: "{{ status_helper.startswith('input_select.') }}"
+        then:
+          - action: input_select.select_option
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              option: "{{ recommendation }}"
+        else:
+          - action: input_text.set_value
+            target:
+              entity_id: "{{ status_helper }}"
+            data:
+              value: "{{ recommendation }}"
+
+  - if:
+      - condition: template
+        value_template: "{{ helper_set and not helper_valid }}"
+    then:
+      - action: system_log.write
+        data:
+          level: warning
+          logger: blueprints.window_ventilation
+          message: "{{ tx.helper_warning.format(room_name, status_helper) }}"
+
+  - if:
+      - condition: template
+        value_template: "{{ recommendation != 'ok' }}"
+      - condition: time
+        after: !input notify_from
+        before: !input notify_until
+    then:
+      - repeat:
+          for_each: "{{ notify_list }}"
+          sequence:
+            - action: "{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                title: "{{ notify_title }}"
+                message: "{{ notify_message }}"
+      - if:
+          - condition: template
+            value_template: "{{ notify_entities | count > 0 }}"
+        then:
+          - action: notify.send_message
+            continue_on_error: true
+            target:
+              entity_id: "{{ notify_entities }}"
+            data:
+              title: "{{ notify_title }}"
+              message: "{{ notify_message }}"
+      - if:
+          - condition: template
+            value_template: "{{ persistent_notification }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              notification_id: "window_{{ room_name | slugify }}"
+              title: "{{ notify_title }}"
+              message: "{{ notify_message }}"
+      - choose: []
+        default: !input custom_actions
+    else:
+      - if:
+          - condition: template
+            value_template: "{{ recommendation == 'ok' and persistent_notification }}"
+        then:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: "window_{{ room_name | slugify }}"

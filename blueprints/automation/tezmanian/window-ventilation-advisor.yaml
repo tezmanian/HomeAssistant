@@ -96,10 +96,11 @@ blueprint:
           name: Area (optional)
           description: >
             The area (room) this automation monitors. If set, the
-            **inside sensors are restricted to this area**: leave a
-            sensor field empty to use all matching sensors of the area
-            automatically, or select sensors manually – those not
-            belonging to the area are ignored. Without an area, the
+            **inside sensors are restricted to this area**. Normally
+            leave the inside sensor fields empty: all matching sensors
+            of the area are then picked automatically (the sensor lists
+            always show every sensor, as they cannot be filtered by
+            area; selected sensors outside the area are ignored). Without an area, the
             inside sensors are used exactly as selected. If no room
             name is entered, the name of the area is used.
           default: ""
@@ -160,12 +161,13 @@ blueprint:
     sensors_inside_section:
       name: Sensors – inside (all optional)
       description: >
-        Sensors in the room itself. With an area selected, only sensors
-        of that area are used: leave a field empty to pick them
-        automatically, or select sensors from the area manually.
-        Without an area, exactly the selected sensors are used.
-        Multiple sensors are averaged, missing or unavailable ones are
-        ignored.
+        Sensors in the room itself. **With an area selected, leave these
+        fields empty** – the matching sensors of the area are picked
+        automatically. The lists below always show all sensors (Home
+        Assistant cannot filter them by area); sensors you select that
+        do not belong to the area are ignored. Without an area, exactly
+        the selected sensors are used. Multiple sensors are averaged,
+        missing or unavailable ones are ignored.
       icon: mdi:home-thermometer
       collapsed: false
       input:

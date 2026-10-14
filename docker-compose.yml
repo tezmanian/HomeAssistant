@@ -9,3 +9,8 @@ services:
     volumes:
       - .:/work:ro
     command: ["yamllint", "-c", ".yamllint", "blueprints"]
+  test:
+    build: .
+    volumes:
+      - .:/work:ro
+    command: ["python", "-I", "-m", "unittest", "discover", "-s", "tools", "-p", "test_*.py", "-v"]

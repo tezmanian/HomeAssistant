@@ -897,7 +897,7 @@ variables:
   heating_season: >
     {%- set ent = heating_entity if heating_entity is string else (heating_entity | first | default('')) -%}
     {%- set md = now().strftime('%m-%d') -%}
-    {%- set ok = heating_start is match('^\d\d-\d\d$') and heating_end is match('^\d\d-\d\d$') -%}
+    {%- set ok = heating_start is match('^[0-9][0-9]-[0-9][0-9]$') and heating_end is match('^[0-9][0-9]-[0-9][0-9]$') -%}
     {%- if heating_mode == 'entity' and ent != '' and states(ent) in ['on', 'off'] -%}
       {{ is_state(ent, 'on') }}
     {%- elif heating_mode == 'dates' and ok -%}

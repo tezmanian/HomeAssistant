@@ -24,7 +24,9 @@ blueprint:
       warmer outside or the room gets too cold
 
     - **Shock ventilation during the heating season** – maximum open time
-      depends on the outdoor temperature (cold = short, mild = longer)
+      depends on the outdoor temperature (cold = short, mild = longer).
+      The heating season is set by outdoor temperature, a date range or an
+      on/off entity
 
 
     All sensor fields are optional and accept multiple sensors (the average of
@@ -40,6 +42,12 @@ blueprint:
     be customised.
 
 
+    **Tip:** Home Assistant names every automation created from a blueprint
+    after the blueprint. Give each automation its own name (e.g. "Ventilation
+    – Office") via the three-dot menu → Rename. The notification titles
+    already contain the room name.
+
+
     **Quick start:** select the window contacts, add whatever sensors
     you have and pick your phone under Notifications. Everything else
     has sensible defaults. Recommended: create a Dropdown helper (options
@@ -51,10 +59,13 @@ blueprint:
     because the window states are re-initialised.
 
 
-    **Version:** 1.4.0
+    **Version:** 1.5.0
 
 
     **Changelog**
+
+    - 1.5.0 (2026-10-14) – Heating season selectable: outdoor temperature
+      (default, as before), date range (MM-DD) or an on/off entity
 
     - 1.4.0 (2026-10-13) – Area selector: restricts the inside sensors to the area
       (auto-picked when empty), room name falls back to the area name; sensors grouped into inside / outside sections
@@ -451,11 +462,60 @@ blueprint:
       icon: mdi:timer-outline
       collapsed: true
       input:
+        heating_mode:
+          name: Heating season – determined by
+          description: >
+            How the heating season is determined.
+            **Outdoor temperature**: below the heating limit
+            (below). **Date range**: between start and end date
+            (below). **Entity**: an on/off entity is `on` during
+            the heating season (e.g. a binary sensor, input
+            boolean or switch). Without a usable value the
+            outdoor temperature is used as fallback.
+          default: temperature
+          selector:
+            select:
+              mode: dropdown
+              options:
+                - value: temperature
+                  label: Outdoor temperature
+                - value: dates
+                  label: Date range
+                - value: entity
+                  label: Entity (on = heating season)
+        heating_entity:
+          name: Heating season entity
+          description: >
+            Only used if "Entity" is selected above. `on` =
+            heating season, `off` = no heating season.
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain: [binary_sensor, input_boolean, switch, schedule]
+        heating_start:
+          name: Heating season start (MM-DD)
+          description: >
+            Only used if "Date range" is selected above. Format
+            `MM-DD`, e.g. `10-01` for 1 October.
+          default: "10-01"
+          selector:
+            text:
+        heating_end:
+          name: Heating season end (MM-DD)
+          description: >
+            Only used if "Date range" is selected above. Format
+            `MM-DD`, e.g. `04-30` for 30 April. A range across
+            New Year (start later than end) is supported.
+          default: "04-30"
+          selector:
+            text:
         heating_limit:
           name: Heating limit (outdoor temperature)
           description: >
-            Below this outdoor temperature the heating season
-            applies: open the window wide for a short time
+            Only used if the heating season is determined by the
+            outdoor temperature. Below this temperature the
+            heating season applies: open the window wide for a short time
             (shock ventilation) instead of tilting it for a long
             time – this exchanges the air without cooling down
             the walls. Above it there is no time limit. Without
@@ -703,6 +763,10 @@ variables:
   temp_delta: !input temp_delta
   aq_inside_high: !input aq_inside_high
   aq_outside_max: !input aq_outside_max
+  heating_mode: !input heating_mode
+  heating_entity: !input heating_entity
+  heating_start: !input heating_start
+  heating_end: !input heating_end
   heating_limit: !input heating_limit
   max_open_cold: !input max_open_cold
   max_open_mild: !input max_open_mild
@@ -831,8 +895,18 @@ variables:
 
   # ---------- Derived values ----------
   heating_season: >
-    {% if t_out is number %}{{ t_out < heating_limit | float }}
-    {% else %}{{ now().month in [10, 11, 12, 1, 2, 3, 4] }}{% endif %}
+    {%- set ent = heating_entity if heating_entity is string else (heating_entity | first | default('')) -%}
+    {%- set md = now().strftime('%m-%d') -%}
+    {%- set ok = heating_start is match('^\d\d-\d\d$') and heating_end is match('^\d\d-\d\d$') -%}
+    {%- if heating_mode == 'entity' and ent != '' and states(ent) in ['on', 'off'] -%}
+      {{ is_state(ent, 'on') }}
+    {%- elif heating_mode == 'dates' and ok -%}
+      {{ (md >= heating_start or md <= heating_end) if heating_start > heating_end else (heating_start <= md <= heating_end) }}
+    {%- elif t_out is number -%}
+      {{ t_out < heating_limit | float }}
+    {%- else -%}
+      {{ now().month in [10, 11, 12, 1, 2, 3, 4] }}
+    {%- endif -%}
   max_open: >
     {% set lo = max_open_cold | float %}{% set hi = max_open_mild | float %}
     {% if t_out is number %}

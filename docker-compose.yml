@@ -1,0 +1,11 @@
+services:
+  check:
+    build: .
+    volumes:
+      - .:/work:ro
+    command: ["python", "-I", "tools/check_blueprints.py"]
+  lint:
+    build: .
+    volumes:
+      - .:/work:ro
+    command: ["yamllint", "-c", ".yamllint", "blueprints"]

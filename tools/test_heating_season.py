@@ -5,21 +5,15 @@ import re
 import unittest
 
 import jinja2
-import yaml
+
+from blueprint_yaml import load
 
 BLUEPRINT = pathlib.Path(
     "blueprints/automation/tezmanian/window-ventilation-advisor.yaml"
 )
 
 
-class Loader(yaml.SafeLoader):
-    pass
-
-
-Loader.add_constructor("!input", lambda l, n: l.construct_scalar(n))
-TEMPLATE = yaml.load(BLUEPRINT.read_text(encoding="utf-8"), Loader)["variables"][
-    "heating_season"
-]
+TEMPLATE = load(BLUEPRINT)["variables"]["heating_season"]
 
 ENV = jinja2.Environment()
 ENV.tests["match"] = lambda value, pattern: re.match(pattern, value) is not None

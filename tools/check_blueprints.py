@@ -4,24 +4,15 @@ import pathlib
 import sys
 
 import jinja2
-import yaml
 
-
-class Loader(yaml.SafeLoader):
-    pass
-
-
-class Input(str):
-    pass
-
-
-Loader.add_constructor("!input", lambda l, n: Input(l.construct_scalar(n)))
+sys.path.insert(0, str(pathlib.Path(__file__).parent))  # python -I drops it
+from blueprint_yaml import Input, load  # noqa: E402
 
 HA_FILTERS = [
     "as_timestamp", "as_datetime", "as_local", "is_number", "regex_replace",
     "regex_findall", "regex_findall_index", "iif", "slugify", "to_json",
     "from_json", "contains", "float_pass", "median", "average", "flatten",
-    "typeof", "is_defined", "timestamp_custom", "timestamp_local",
+    "expand", "typeof", "is_defined", "timestamp_custom", "timestamp_local",
     "timestamp_utc", "relative_time", "multiply", "add", "log", "sin", "cos",
 ]
 HA_TESTS = ["match", "search", "number", "is_number", "contains", "list", "defined_or_none"]
@@ -58,7 +49,7 @@ def walk(node, path=""):
 
 def check(file):
     errors = []
-    data = yaml.load(file.read_text(encoding="utf-8"), Loader)
+    data = load(file)
     defined = set()
 
     def collect(node):

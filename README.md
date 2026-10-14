@@ -7,5 +7,5 @@ Home Assistant blueprints.
 ```
 docker compose run --rm check   # YAML loads, !input defined, Jinja templates compile
 docker compose run --rm lint    # yamllint
-docker compose run --rm test    # heating season template tests
+docker compose run --rm test    # unit tests (heating season, decisions, reminders, zone)
 ```

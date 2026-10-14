@@ -59,10 +59,13 @@ blueprint:
     because the window states are re-initialised.
 
 
-    **Version:** 1.6.0
+    **Version:** 1.7.0
 
 
     **Changelog**
+
+    - 1.7.0 (2026-10-14) – Maximum number of reminders per recommendation
+      (needs a status helper)
 
     - 1.6.0 (2026-10-14) – Optional presence zone: Companion App devices
       are only notified while they are in the zone (e.g. Home)
@@ -687,6 +690,20 @@ blueprint:
           default: 15
           selector:
             number: { min: 0, max: 240, step: 5, unit_of_measurement: min }
+        max_reminders:
+          name: Maximum reminders per recommendation
+          description: >
+            Stops reminding after this many reminders while the
+            same recommendation persists (the first notification
+            on a change is not counted). 0 = unlimited. **Requires
+            a status helper** – its last change marks the start of
+            the recommendation; without a helper this setting has
+            no effect. Also needs a reminder interval > 0.
+            Note: a Home Assistant restart resets the helper's
+            change time and therefore the counter.
+          default: 0
+          selector:
+            number: { min: 0, max: 20, step: 1 }
         notify_from:
           name: Notify from
           description: >
@@ -795,6 +812,7 @@ variables:
   notify_zone: !input notify_zone
   persistent_notification: !input persistent_notification
   reminder_minutes: !input reminder_minutes
+  max_reminders: !input max_reminders
   notify_from_raw: !input notify_from
   notify_until_raw: !input notify_until
   language: !input language
@@ -1025,9 +1043,17 @@ variables:
     {{ (f <= t < u) if f <= u else (t >= f or t < u) }}
   window_just_opened: "{{ in_window and not in_window_prev }}"
   helper_warning_due: "{{ helper_set and not helper_valid and now().minute < 5 }}"
+  # Reminders stop after max_reminders intervals since the helper last
+  # changed (half an interval of slack for the 5-minute check).
+  reminders_left: >
+    {% if not has_helper or max_reminders | int == 0 %}{{ true }}
+    {%- else %}
+      {{- (now() - states[status_helper].last_changed).total_seconds() / 60
+          < (max_reminders | int + 0.5) * reminder_minutes | float }}
+    {%- endif %}
   reminder_due: >
     {% set lt = this.attributes.last_triggered if this is defined else none %}
-    {{ reminder_minutes | float > 0
+    {{ reminders_left and reminder_minutes | float > 0
        and (lt is none or (now() - lt).total_seconds() / 60 >= reminder_minutes | float) }}
   # false for runs that only exist to log the helper warning
   should_notify: >

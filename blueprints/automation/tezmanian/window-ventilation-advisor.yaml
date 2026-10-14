@@ -59,10 +59,13 @@ blueprint:
     because the window states are re-initialised.
 
 
-    **Version:** 1.5.0
+    **Version:** 1.6.0
 
 
     **Changelog**
+
+    - 1.6.0 (2026-10-14) – Optional presence zone: Companion App devices
+      are only notified while they are in the zone (e.g. Home)
 
     - 1.5.0 (2026-10-14) – Heating season selectable: outdoor temperature
       (default, as before), date range (MM-DD) or an on/off entity
@@ -623,6 +626,20 @@ blueprint:
               multiple: true
               filter:
                 - integration: mobile_app
+        notify_zone:
+          name: Only notify devices in zone (optional)
+          description: >
+            If set, Companion App devices (picker above) are only
+            notified while their location is in this zone, e.g.
+            Home. Devices without a location tracker are always
+            notified. Does not apply to notify entities,
+            additional services, the persistent notification or
+            custom actions. Empty = no restriction.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: zone
         notify_entities:
           name: Notify entities (optional)
           description: >
@@ -775,6 +792,7 @@ variables:
   notify_services_raw: !input notify_services
   notify_devices: !input notify_devices
   notify_entities: !input notify_entities
+  notify_zone: !input notify_zone
   persistent_notification: !input persistent_notification
   reminder_minutes: !input reminder_minutes
   notify_from_raw: !input notify_from
@@ -1032,9 +1050,13 @@ variables:
     {{ reasons | join(' · ') }}{{ ('\n' ~ d.l | join(' · ')) if show_values and d.l | count > 0 else '' }}
   notify_list: >
     {% set ns = namespace(l=[]) %}
+    {% set zone_state = '' if not notify_zone else ('home' if notify_zone == 'zone.home' else state_attr(notify_zone, 'friendly_name')) %}
     {% for dev in notify_devices %}
       {% set n = device_attr(dev, 'name') %}
-      {% if n %}{% set ns.l = ns.l + ['notify.mobile_app_' ~ (n | slugify)] %}{% endif %}
+      {% set tr = namespace(l=[]) %}
+      {% for e in device_entities(dev) if e.startswith('device_tracker.') %}{% set tr.l = tr.l + [e] %}{% endfor %}
+      {% set present = zone_state in ['', none] or tr.l | count == 0 or tr.l | select('is_state', zone_state) | list | count > 0 %}
+      {% if n and present %}{% set ns.l = ns.l + ['notify.mobile_app_' ~ (n | slugify)] %}{% endif %}
     {% endfor %}
     {% set extra = notify_services_raw.split(',') | map('trim') | reject('eq', '') | list %}
     {{ (ns.l + extra) | unique | list }}
